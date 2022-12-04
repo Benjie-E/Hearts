@@ -10,10 +10,10 @@ extern SetConsoleTextAttribute : proc
 extern GetConsoleScreenBufferInfo : proc
 
 .data
-West DB 13 DUP (?)
-North DB 13 DUP (?)
-East DB 13 DUP (?)
-Player DB 13 DUP (?)
+West DB 16 DUP (?)
+North DB 16 DUP (?)
+East DB 16 DUP (?)
+Player DB 16 DUP (?)
 deckSize DB 52
 
 currentPlayer BYTE 3 ;Starting at West
@@ -300,16 +300,15 @@ _removeCard PROC
 mov al,cl
 mov rcx,13
 mov bl,currentPlayer
-imul bx,13
+imul bx,16
 lea rdi,West
 add rdi,rbx
 REPNZ SCASB
-xor bl
-removeLoop:
-inc rdi
-mov bl,[rdi]
-loop
-;mov 
+mov rsi,rdi
+dec rdi
+xor bl,bl
+rep movsb
+mov [rdi],0
 ret
 _removeCard ENDP
 _printMyCards PROC
