@@ -9,7 +9,7 @@ int main() {
 	GetConsoleScreenBufferInfo(handle, test);
 	SetConsoleTextAttribute(handle, 4);
 	GetConsoleScreenBufferInfo(handle, test);
-
+	
 	std::cout << test;
 }
 

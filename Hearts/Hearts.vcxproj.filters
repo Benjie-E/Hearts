@@ -19,9 +19,4 @@
       <Filter>Source Files</Filter>
     </MASM>
   </ItemGroup>
-  <ItemGroup>
-    <ClCompile Include="Source.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
-  </ItemGroup>
 </Project>
