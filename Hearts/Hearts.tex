@@ -1,0 +1,196 @@
+documentclass[twoside]{article}
+usepackage{fullpage}
+usepackage[pdftex]{graphicx}
+usepackage{wrapfig}
+usepackage{amsmath}
+usepackage{hyperref}
+usepackage{sectsty}
+usepackage{listings}
+usepackage{pxfonts}
+usepackage{graphicx}
+graphicspath{{.images}}
+lstset{basicstyle={ttfamily},
+xleftmargin={0.75cm},
+numbers=left,
+stepnumber=1,
+firstnumber=1,
+numberfirstline=true,
+language={[x86masm]Assembler},
+}
+
+usepackage{fixltx2e}
+usepackage{fancyhdr}
+pagestyle{fancy}
+fancyhead{}
+fancyfoot{}
+renewcommand{headrulewidth}{0pt}
+fancyfoot[LO]{emph{Hall - CSI 370}}
+fancyfoot[LE]{emph{Research 1 - Project}}
+fancyfoot[R] {thepage}
+newenvironment{code}{fontfamily{lmtt}selectfont}{}
+
+begin{document}
+title{Hearts Assembly Technical Report}
+author{Benjie Eisen 
+CSI-370 Computer Architecture
+benjie.eisen@mymail.champlain.edu}
+date{December 11, 2022}
+maketitle
+
+noindent
+section{What}
+The project I decided to create was the classic card game Hearts entirely in assembly. To create the game, I wrote down all of the parts of interactions I would need detailing how it would be played with the four players of one of which would be the human player.
+section{Why}
+The reason that I chose this project topic was that I used to really playing this game online and with my family. It was also a card game which is something that I have wanted to code up for a while. I decided to do a card game when go fish was brought up in class as one of the things that someone had done in the past and Hearts is similar but a bit more fun.
+section{Game Rules}
+The game Hearts is played with four players using a standard pack of 52 playing cards. The goal of the game is to get as few points as possible. When one of the players gets the agreed-upon amount of points, the player with the fewest points wins the game. The game is played in many rounds consisting of a passing phase and 13 tricks each. The players are dealt their cards and then pass three of them to the left in the first round, to the right in the second round, and straight across in the third round, and there is no passing for the fourth round (It repeats on subsequent rounds). The player with the 2 of clubs starts the first trick of the round and then each player subsequently plays a card in clockwise order. If the player has a card of the suit that starts the trick, they must play it. If the player does not have any of that suit then they may play a card of any suit. If you play the highest card in a trick of the starting suit, you get to start the next trick. You may not start a trick with a heart unless someone else has already played a heart on a previous trick. If you win a trick then you get points added to your score for that round. Each heart card is worth 1 point and the Queen of Spades is worth 13 points. If you somehow manage to win all the tricks with points and get 26 points for the round, you instead get 0 points that round and the other 3 players each get 26 points added to their totals(Remember points are bad).
+section{How}
+The way that I made the program was using x86_64 assembly. I used the MASM dialect because I made it on my Windows 10 laptop and that the language that Windows understands. The IDE that I used was Visual Studio 2019. I originally also used C++ for the inputs and outputs of the programs but I changed that to only using assembly through the Windows APIs. I probably modularized it as there a ton of functions that just call other functions and it probably could have been condensed a bit better.
+
+section{Specifics}
+subsection{IO details}
+To print out strings and read in strings, I used Windows APIs. To take in strings I used ReadConsoleA to take in the user's input and store it in the Input Buffer to be converted from ascii characters into the card itself.
+begin{lstlisting}
+mov rcx,ConsoleInputHandle
+lea rdx,InputBuffer
+mov r8, 4
+lea r9,InputBufferNum
+call ReadConsoleA
+end{lstlisting}
+To print out to the console I used the WriteConsoleA API. I made it into a macro because I used it so many times in many different places.
+begin{lstlisting}
+print MACRO string,length
+mov rcx, ConsoleOutputHandle
+    lea rdx, string
+    mov r8, length
+    mov r9,0
+    call WriteConsoleA
+ENDM
+end{lstlisting}
+I was then able to call it to print out a string by doing
+begin{lstlisting}
+    print PlayMessage,12
+end{lstlisting}
+for example which would print out the PlayMessage string and it is 12 characters long.
+I also had a NewLine string which I could use to go to the next line when I needed to.
+The Console Input and Output handles are defined in the initialization by using the GetStdHandle API which gets the handles of both the input and output for the console
+begin{lstlisting}
+mov rcx,-11
+call GetStdHandle
+mov ConsoleOutputHandle,rax
+mov rcx,-10
+call GetStdHandle
+mov ConsoleInputHandle,rax
+end{lstlisting}
+The -11 is the device value for the default output device and -10 is the device value for the default input device.
+subsection{Functions}
+begin{itemize}
+    item There were many functions that were used in the making of this program. The first one is the main function that just calls the other functions.
+    begin{lstlisting}
+_main PROC
+call _initialize
+mainLoop
+call _handInitialize
+call _pass
+call _play
+    end{lstlisting}
+    
+    item The next function is the hand initialize function which creates the deck and shuffles the cards in it. This is one of the few places I used random number generation.
+    begin{lstlisting}
+shuffleLoop
+call _getRand
+div r11
+add rdx,rdi
+mov al,[rbx+rdi]
+xchg al,[rdx]
+mov [rbx+rdi],al
+inc rbx
+cmp r11,rbx
+jg shuffleLoop
+    end{lstlisting}
+    item Some more functions that I made were bot and human play functions. For the human play it gets input from the user of which card to play. For the bot play it just uses the first card that it has that it is legal to play. The hand is randomized at the beginning of the round so it is random what card will be played. After that it guides through rest of the different parts of the process for a turn.
+    item An important function is the checkIfPlayable function. It takes in a card byte and also looks at the current player variable. It 
+begin{lstlisting}
+    playableLoop
+mov dh,0f0h
+and dh,BYTE PTR [rdi]
+cmp dl,dh
+je playableReturn
+inc rdi
+loop playableLoop
+jmp canPlay
+playableReturn
+end{lstlisting}
+end{itemize}
+subsection{Data Structures}
+The main data structure I used for this project was BYTE arrays that were 16 bytes long. Those were for the players' hands and usually only stored up to 13 cards except when passing at the beginning of the round when it can get up to 16 cards in their hands. I also used bytes to store the scores of the players(both for the round and between rounds). I used a 52 BYTE array at the beginning to initialize the hands but after that, it is not necessary until the next round starts and a new deck of cards needs to be generated.
+
+section{Challenges and Solutions}
+subsection{Bot AI}
+Making an AI for the bot was one of the things that I was really struggling with. I ended up just removing all choice from the bot and it chooses the first card from its already shuffled up hand that it can play.
+subsection{Random Number Generation}
+Another problem that I had was with generating random numbers. I initially used rand and srand to generate random numbers but when I moved away from passing it through C++, I lost access to those C++ compiler-specific functions. I ended up using the rdtsc instruction in my getRand function which takes in the time stamp and mods that by the amount that I wanted to get between by taking it as an input to the function and outputting the random number
+begin{lstlisting}
+_getRand PROC ; (Max_Number)
+push rcx
+push rbx
+xor rdx,rdx
+mov rbx,rcx
+rdtsc
+xor rdx,rdx
+nop
+div rbx
+mov rax,rdx
+pop rbx
+pop rcx
+ret
+_getRand ENDP
+end{lstlisting}
+subsection{Not having valid cards}
+Another problem that I had was that if I didn't have any cards of the starting suit, it showed that I didn't have any cards that I could play. If I don't have any cards of the correct suit than I should be able to play any of my cards without having a possibility to win the trick. I realized that it was caused by me not clearing out the c register before moving the amount of cards in my hand to the cl register. 
+begin{lstlisting}
+xor rcx,rcx
+mov cl,[r9] ;amount of cards in hand
+end{lstlisting}
+This caused the loop to keep reading past that players hand and into other code which would always have bytes that make the cards invalid.
+subsection{Input validation}
+One other issue that I had was validating the input of a card name. This was for when the player wants to play a card from one the cards that they have in their hand. They have to type it in like RankSuit so for example the ten of clubs would be TC. It is case sensative so they must type it in exactly like that. I used strings for the rank and suit that the validation function would search through to see if it is in those lists. The strings were uppercase except for the numbers.
+begin{lstlisting}
+Rank DB 23456789TJQKA,0
+Suit DB CDSH,0
+end{lstlisting}
+begin{lstlisting}
+call ReadConsoleA
+mov rcx, 13
+lea rdi,Rank
+mov al,[InputBuffer]
+REPNZ SCASB
+jne invalid
+mov bl,3Eh
+sub bl,cl
+mov rcx, 4
+lea rdi,Suit
+mov al,[InputBuffer+1]
+REPNZ SCASB
+end{lstlisting}
+begin{figure}
+section{Other Visualizations}
+    centering
+    includegraphics{game.png}
+    caption{Image of the game running after a few tricks}
+    label{figmy_label}
+end{figure}
+newpage
+begin{thebibliography}{9}
+bibitem{texbook}
+Hall and Slonka, “Assembly Programming and Computer Architecture for Software Engineers”.
+Prospect Press, 2017.
+bibitem{website} Lists - Overleaf Online Latex Editor, Date not provided
+newline
+url{httpswww.overleaf.comlearnlatexLists}
+bibitem{website}
+Hearts. Bicycle Playing Cards, date not provided
+newline
+url{httpsbicyclecards.comhow-to-playhearts}
+end{thebibliography}
+end{document}

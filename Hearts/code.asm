@@ -1,27 +1,12 @@
 extern WriteConsoleA: proc
 extern ReadConsoleA : proc
 extern GetStdHandle : proc
-;extern srand : proc
-;extern rand : proc
+;
 extern ExitProcess : proc
 extern SetConsoleTextAttribute : proc
 extern GetConsoleScreenBufferInfo : proc
 extern Sleep : proc
-;extern RtlGenRandom  : proc
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;; TODO
-; Add showing other players plays ;;DONE
-; Add showing scores after the end of each round
-; Add passing
-; Add sorting for my cards ;;DONE
-; Add shooting the moon DONE
-; Optional Add better bot AI
-; FIX showing no plays DONE
-; Optional Add different colors per player
-; Add win at 100 points
-; 
-;;;;;;;;;;;;;;;;;;;;;;;;;
 .data
 West DB 16 DUP (?)
 North DB 16 DUP (?)
@@ -105,7 +90,6 @@ _main PROC
 call _initialize
 mainLoop:
 call _handInitialize
-;call _pass
 call _play
 inc Direction
 jmp mainLoop
@@ -200,18 +184,13 @@ mov NorthRound,0
 mov EastRound,0
 mov PlayerRound,0
 
-
+call _sort
 add rsp,20h
 pop rbp
 ret
 _handInitialize ENDP
 
 _deal PROC
-
-lea rdi,West
-mov al,0ffh
-mov rcx,40h
-rep stosb
 
 lea rsi, Deck
 mov rcx,13
@@ -235,11 +214,9 @@ _printCard PROC
 push rbp			; save frame pointer
 sub rsp, 30h			; reserve for return and rbp	
 xor rbx,rbx
-;mov rsi,rcx
 mov bl,0Fh
 and bl,cl
 sub bl,2
-;mov dh,Rank+bl
 
 lea rax, Rank
 	add rax, rbx
@@ -248,7 +225,6 @@ xor rbx,rbx
 mov bl,0F0h
 and bl,cl
 shr bl,4
-;mov dl,Suit+bh
 
 lea rax, Suit
 	add rax, rbx
@@ -267,7 +243,7 @@ colorSkip:
 print Buffer,3
 
 mov rcx,ConsoleOutputHandle
-mov rdx, 07h ;HIGHLIGHT
+mov rdx, 07h ;HIGHLIGHT OFF
 call SetConsoleTextAttribute
 
 add rsp, 30h
@@ -302,7 +278,7 @@ imul rdx,16
 add rdi,rdx
 mov dl,0f0h
 and dl, HighCard
-playableLoop: ;; really need to fix this; shows no playable cards
+playableLoop:
 mov dh,0f0h
 and dh,BYTE PTR [rdi]
 cmp dl,dh
@@ -354,7 +330,12 @@ mul Direction
 movzx rsi, LeftMessage
 print [rsi],12
 print NewLine,2
-
+cmp Direction,0
+je LeftPass
+cmp Direction,0
+je RightPass
+cmp Direction,0
+je StraightPass
 call _getCard
 mov dl,al
 mov cl,2
@@ -364,6 +345,9 @@ call _getCard
 passSkip:
 mov PassingPhase,0
 ret
+LeftPass:
+RightPass:
+StraightPass:
 _pass ENDP
 
 _play PROC
@@ -426,9 +410,6 @@ inc rcx
 cmp PlayerRound,26
 je shootTheMoon
 
-
-mov PlayerRound,23
-mov PlayerPoints,101
 xor rbx,rbx
 xor rax,rax
 endOfRoundLoop:
@@ -459,21 +440,12 @@ mov [Buffer+0],al
 mov al,ah
 xor ah,ah
 
-cmp ax,0
-je numSkip1
 inc rcx
 div dh
 add ah,30h
 mov [Buffer+1],ah
 
-
-
-
-numSkip1:
-add rdi,2
-sub rdi,rcx
 print Buffer,2
-print [rdi], 2
 print PointsMessage2,31
 
 mov al,[rsi]
@@ -485,9 +457,6 @@ mov [Buffer+0],al
 mov al,ah
 xor ah,ah
 
-cmp ax,10
-jl numSkip2
-
 div dh
 mov al,ah
 add ah,30h
@@ -498,7 +467,6 @@ xor ah,ah
 div dh
 add ah,30h
 mov [Buffer+2],ah
-numSkip2:
 print Buffer, 3
 print NewLine, 2
 inc rbx
@@ -521,35 +489,11 @@ ret
 _endOfRound ENDP
 _endOfTrickPrint PROC ;(player,points)
 
-;mov al,dl
-;mov dh,10
-;div dh
-;add ax,3030h
-;cmp al,30h
-;jne zeroSkip
-;mov al,32
-;zeroSkip:
-
-;mov WORD PTR Buffer,ax
-;xor rax,rax
-
 lea rdx, WestName
 mov al,6
 mul cl
 add rdx,rax
 print [rdx],5
-
-;mov rcx, ConsoleOutputHandle
-;lea rdx, PointsMessage
-;mov r8, 24
-;mov r9,0
-;call WriteConsoleA
-
-;mov rcx, ConsoleOutputHandle
-;lea rdx, Buffer
-;mov r8, 2
-;mov r9,0
-;call WriteConsoleA
 
 print TrickMessage,16
 print NewLine,2
@@ -632,7 +576,6 @@ call Sleep ;SLEEP
 call _printMyCards
 call _getCard
 mov cl,al
-;mov CurrentPlayer,3 ; remove this
 call _removeCard
 mov cl,al
 call _addToTrick
@@ -757,8 +700,8 @@ jnz tmp
 print NewLine,2
 ret
 _printMyCards ENDP
-_sort PROC;(player)
-    mov bl, 16      ; Outer loop iteration count
+_sort PROC
+    mov bl, 12      ; Outer loop iteration count
 OuterLoop:
 	lea rsi,Player
 
@@ -767,7 +710,7 @@ InnerLoop:
     lodsb
     mov dl, [rsi]
     cmp al, dl
-    jle Skip
+    jbe Skip
     mov [rsi-1], dl   ; Swap these 2 elements
     mov [rsi], al
 Skip:
