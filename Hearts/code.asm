@@ -1,25 +1,36 @@
-extern MessageBoxA: proc
 extern WriteConsoleA: proc
 extern ReadConsoleA : proc
 extern GetStdHandle : proc
 ;extern srand : proc
 ;extern rand : proc
-extern GetTickCount : proc
 extern ExitProcess : proc
 extern SetConsoleTextAttribute : proc
 extern GetConsoleScreenBufferInfo : proc
+extern Sleep : proc
 ;extern RtlGenRandom  : proc
 
-
+;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; TODO
+; Add showing other players plays ;;DONE
+; Add showing scores after the end of each round
+; Add passing
+; Add sorting for my cards ;;DONE
+; Add shooting the moon DONE
+; Optional Add better bot AI
+; FIX showing no plays DONE
+; Optional Add different colors per player
+; Add win at 100 points
+; 
+;;;;;;;;;;;;;;;;;;;;;;;;;
 .data
 West DB 16 DUP (?)
 North DB 16 DUP (?)
 East DB 16 DUP (?)
 Player DB 16 DUP (?)
-deckSize DB 52
+DeckSize DB 52
 
-currentPlayer BYTE 3 ;Starting at West
-trickNum BYTE 13
+CurrentPlayer BYTE 3 ;Starting at West
+TrickNum BYTE 13
 
 WestCards BYTE 13
 NorthCards BYTE 13
@@ -31,10 +42,10 @@ NorthRound BYTE 0
 EastRound BYTE 0
 PlayerRound BYTE 0
 
-WestPoints DW 0
-NorthPoints DW 0
-EastPoints DW 0
-PlayerPoints DW 0
+WestPoints BYTE 0
+NorthPoints BYTE 0
+EastPoints BYTE 0
+PlayerPoints BYTE 0
 
 HighCard BYTE 0
 HighPlayer BYTE 0
@@ -44,29 +55,60 @@ HeartsBroken BYTE 0
 Deck DB 52 DUP (?)
 Rank DB "23456789TJQKA",0
 Suit DB "CDSH",0
-PlayMessage DB 13,10,"Play a card:",0
+PlayMessage DB "Play a card:",0
 InvalidCardMessage DB "Invalid Card. Try Another Card",0
 DoNotHaveMessage DB "You do not have that card",0
 CanNotPlayMessage DB "You must play a card of the starting suit",0
+NewLine DB 13,10,0
 
-Buffer DB 2 DUP (?)
-Direction BYTE 0 ; LRSN
+WestMessage DB 13,"West Plays:",0
+NorthMessage DB "North Plays:",0
+EastMessage DB 13,"East Plays:",0
 
-consoleOutputHandle QWORD ?
-consoleInputHandle QWORD ?
+WestName DB 13,"West",0
+NorthName DB "North",0
+EastName DB 13,"East",0
+PlayerName DB 13,13,"You",0
+
+TrickMessage DB " wins the trick!",0
+
+PointsMessage DB " gets ",0
+PointsMessage2 DB " points and now has a total of ",0
+
+MoonMessage DB " shot the moon and gets 0 points! Everyone else gets 26 points.",0
+
+PassingPhase DB 0
+
+PassMessage DB "Choose 3 cards to pass ",0
+LeftMessage DB "to your Left",0
+RightMessage DB "to the Right",0
+StraightMessage DB "straight now"
+
+Buffer DB 4 DUP (?)
+Direction DB 0 ; LRSN
+
+ConsoleOutputHandle QWORD ?
+ConsoleInputHandle QWORD ?
 InputBuffer BYTE 2 DUP (?)
 InputBufferNum BYTE ?
+
+print MACRO string,length
+	mov rcx, ConsoleOutputHandle
+	lea rdx, string
+	mov r8, length
+	mov r9,0
+	call WriteConsoleA
+ENDM
 .code
 
 _main PROC
 call _initialize
 mainLoop:
 call _handInitialize
-call _pass
+;call _pass
 call _play
 inc Direction
 jmp mainLoop
-ret
 call ExitProcess
 _main ENDP
 
@@ -77,21 +119,20 @@ sub rsp,20h
 
 mov rcx,-11
 call GetStdHandle
-mov consoleOutputHandle,rax
+mov ConsoleOutputHandle,rax
 mov rcx,-10
 call GetStdHandle
-mov consoleInputHandle,rax
+mov ConsoleInputHandle,rax
 
 add rsp,20h
 pop rbp
 ret
 _initialize ENDP
 _getRand PROC
-
 push rcx
 push rbx
 xor rdx,rdx
-mov rbx,52
+mov rbx,rcx
 rdtsc
 xor rdx,rdx
 nop
@@ -108,7 +149,7 @@ sub rsp,20h
 
 lea rdi,Deck
 mov rax,0
-movzx rcx,deckSize
+movzx rcx,DeckSize
 rep stosb
 lea rdi,Deck
 mov bl,2
@@ -130,6 +171,7 @@ lea rdi,Deck
 mov r11,52
 xor rbx,rbx
 xor r12,r12
+mov rcx,52
 shuffleLoop:
 	call _getRand
 	div r11
@@ -142,7 +184,7 @@ shuffleLoop:
 jg shuffleLoop
 xor rbx,rbx
 inc r12
-cmp r12,3
+cmp r12,10
 jl shuffleLoop
 
 
@@ -165,15 +207,21 @@ ret
 _handInitialize ENDP
 
 _deal PROC
+
+lea rdi,West
+mov al,0ffh
+mov rcx,40h
+rep stosb
+
 lea rsi, Deck
 mov rcx,13
-lea rdi, East
+lea rdi, West
 rep movsb
 mov rcx,13
 lea rdi, North
 rep movsb
 mov rcx,13
-lea rdi, West
+lea rdi, East
 rep movsb
 mov rcx,13
 lea rdi, Player
@@ -187,9 +235,9 @@ _printCard PROC
 push rbp			; save frame pointer
 sub rsp, 30h			; reserve for return and rbp	
 xor rbx,rbx
-mov rsi,rcx
+;mov rsi,rcx
 mov bl,0Fh
-and bl,[rsi]
+and bl,cl
 sub bl,2
 ;mov dh,Rank+bl
 
@@ -198,7 +246,7 @@ lea rax, Rank
 	mov dh,[rax]
 xor rbx,rbx
 mov bl,0F0h
-and bl,[rsi]
+and bl,cl
 shr bl,4
 ;mov dl,Suit+bh
 
@@ -209,22 +257,16 @@ mov Buffer,dh
 mov [Buffer+1],dl
 mov [Buffer+2],32 ;space
 
-mov cl,[rcx] ; address to card
-
 call _checkIfPlayable
 cmp rax,0
 je colorSkip
-mov rcx,consoleOutputHandle
+mov rcx,ConsoleOutputHandle
 mov rdx, 8F04h ;HIGHLIGHT
 call SetConsoleTextAttribute
 colorSkip:
-mov rcx, consoleOutputHandle
-lea rdx, Buffer
-mov r8, 3
-mov r9,0
-call WriteConsoleA
+print Buffer,3
 
-mov rcx,consoleOutputHandle
+mov rcx,ConsoleOutputHandle
 mov rdx, 07h ;HIGHLIGHT
 call SetConsoleTextAttribute
 
@@ -236,122 +278,373 @@ _printCard ENDP
 _checkIfPlayable PROC ;;Need to fix for hearts and first card 2C
 push rbp
 push rdi
+push rcx
 sub rsp, 10h
 xor rax,rax
-and cl, 0F0h
+cmp PassingPhase,1
+je canPlay
 mov dl,HighCard
 and dl,0F0h
+cmp dl,80h ; first card of round
+je twoOfClubs
+and cl, 0F0h
 cmp dl,40h
-je canPlay ;first card
+je heartsBrokenCheck ;first card of trick
 cmp cl,dl
 je canPlay ;same suit
-movzx rdx, currentPlayer 
-lea r9, WestCards
+movzx rdx, CurrentPlayer 
+lea r9, WestCards 
 add r9,rdx
-mov cl,[r9]
+xor rcx,rcx
+mov cl,[r9] ;amount of cards in hand
 lea rdi,West
-mov rcx,[rdi+rdx]
-movzx r9, HighCard
-playableLoop: ;; really need to fix this
-test cl,BYTE PTR [rdi]
+imul rdx,16
+add rdi,rdx
+mov dl,0f0h
+and dl, HighCard
+playableLoop: ;; really need to fix this; shows no playable cards
+mov dh,0f0h
+and dh,BYTE PTR [rdi]
+cmp dl,dh
 je playableReturn
 inc rdi
 loop playableLoop
 jmp canPlay
 playableReturn:
 add rsp, 10h
+pop rcx
 pop rdi
 pop rbp
 ret
 canPlay:
 inc rax
 jmp playableReturn
+twoOfClubs:
+cmp cl,02h
+je canPlay
+jmp playableReturn
+heartsBrokenCheck:
+cmp cl,30h
+jne canPlay
+cmp HeartsBroken,0
+je playableReturn
+jmp canPlay
 _checkIfPlayable ENDP
-
+_addCardToPlayer PROC ;(player,card)
+lea rdi,West
+mov rax,rcx
+imul ax,16
+add rdi,rax
+mov al, 0ffh
+mov rcx,16
+repnz scasb
+dec rdi
+mov [rdi],dl
+ret
+_addCardToPlayer ENDP
 _pass PROC
-;call _sort
+call _sort
+mov PassingPhase,1
+cmp Direction,3
+je passSkip
+call _printMyCards
+print PassMessage,23
+mov rax, 13
+mul Direction
+movzx rsi, LeftMessage
+print [rsi],12
+print NewLine,2
+
+call _getCard
+mov dl,al
+mov cl,2
+call _addCardToPlayer
+call _getCard
+call _getCard
+passSkip:
+mov PassingPhase,0
 ret
 _pass ENDP
 
 _play PROC
-mov trickNum, 13
+mov HeartsBroken,0
+mov TrickNum, 13
 mov ax,02h
 
-jz firstPlayerCheck
 mov rcx,13
-mov currentPlayer,0
+mov CurrentPlayer,0
 lea rdi,West
 repnz scasb
 jz firstPlayerCheck
 mov rcx,13
-mov currentPlayer,1
+mov CurrentPlayer,1
 lea rdi,North
 repnz scasb
 jz firstPlayerCheck
 mov rcx,13
-mov currentPlayer,2
+mov CurrentPlayer,2
 lea rdi,East
 repnz scasb
 jz firstPlayerCheck
 mov rcx,13
-mov currentPlayer,3
+mov CurrentPlayer,3
 lea rdi,Player
 repnz scasb
 
 firstPlayerCheck:
-nop
+mov TrickNum,13
+mov HighCard,80h
 playLoop:
 call _trick
+xor rcx,rcx
+mov cl,HighPlayer
+mov dl,TrickPoints
+mov CurrentPlayer,cl
+lea rdi,WestRound
+add rdi, rcx
+add [rdi],dl
 
-cmp trickNum,0
+call _endOfTrickPrint
+dec TrickNum
+cmp TrickNum,0
 jg playLoop
+call _endOfRound
 ret
 _play ENDP
+
+_endOfRound PROC
+xor rcx,rcx
+cmp WestRound,26
+je shootTheMoon
+inc rcx
+cmp NorthRound,26
+je shootTheMoon
+inc rcx
+cmp EastRound,26
+je shootTheMoon
+inc rcx
+cmp PlayerRound,26
+je shootTheMoon
+
+
+mov PlayerRound,23
+mov PlayerPoints,101
+xor rbx,rbx
+xor rax,rax
+endOfRoundLoop:
+lea rdx, WestName
+mov al,6
+mul bl
+add rdx,rax
+print [rdx],5
+
+print PointsMessage, 6
+
+mov rcx,1
+lea rdi,Buffer
+lea rsi,WestRound
+add rsi,rbx
+xor ax,ax
+mov al,[rsi]
+
+lea rsi,WestPoints
+add rsi,rbx
+add [rsi],al
+
+mov dh,10
+div dh
+add al,30h
+mov [Buffer+0],al
+
+mov al,ah
+xor ah,ah
+
+cmp ax,0
+je numSkip1
+inc rcx
+div dh
+add ah,30h
+mov [Buffer+1],ah
+
+
+
+
+numSkip1:
+add rdi,2
+sub rdi,rcx
+print Buffer,2
+print [rdi], 2
+print PointsMessage2,31
+
+mov al,[rsi]
+mov dh,10
+div dh
+add al,30h
+mov [Buffer+0],al
+
+mov al,ah
+xor ah,ah
+
+cmp ax,10
+jl numSkip2
+
+div dh
+mov al,ah
+add ah,30h
+mov [Buffer+1],ah
+
+xor ah,ah
+
+div dh
+add ah,30h
+mov [Buffer+2],ah
+numSkip2:
+print Buffer, 3
+print NewLine, 2
+inc rbx
+cmp rbx,4
+jl endOfRoundLoop
+xor rax,rax
+ret
+shootTheMoon:
+lea rdx, WestName
+mov al,6
+mul cl
+add rdx,rax
+print [rdx],5
+
+print MoonMessage,63
+
+print NewLine,2
+xor rax,rax
+ret
+_endOfRound ENDP
+_endOfTrickPrint PROC ;(player,points)
+
+;mov al,dl
+;mov dh,10
+;div dh
+;add ax,3030h
+;cmp al,30h
+;jne zeroSkip
+;mov al,32
+;zeroSkip:
+
+;mov WORD PTR Buffer,ax
+;xor rax,rax
+
+lea rdx, WestName
+mov al,6
+mul cl
+add rdx,rax
+print [rdx],5
+
+;mov rcx, ConsoleOutputHandle
+;lea rdx, PointsMessage
+;mov r8, 24
+;mov r9,0
+;call WriteConsoleA
+
+;mov rcx, ConsoleOutputHandle
+;lea rdx, Buffer
+;mov r8, 2
+;mov r9,0
+;call WriteConsoleA
+
+print TrickMessage,16
+print NewLine,2
+
+ret
+_endOfTrickPrint ENDP
 _trick PROC
-mov HighCard,40h ;uncomment this
+cmp HighCard,80h
+je firstCardTrick
+mov HighCard,40h
+firstCardTrick:
 mov TrickPoints,0
-cmp currentPlayer,3
+mov rcx,4
+trickLoop:
+cmp CurrentPlayer,3
 jng trickNotOver
-mov currentPlayer,0
+mov CurrentPlayer,0
 trickNotOver:
 je trickEqual
+
+call _botPlay
+trickEnd:
+inc CurrentPlayer
+loop trickLoop
+ret
+trickEqual:
+;mov HighCard
 call _humanPlay
 jmp trickEnd
-trickEqual:
-jmp trickEqual
-trickEnd:
-inc currentPlayer
-ret
 _trick ENDP
+_botPrint PROC
+push rcx
+mov bl,cl
+lea rdx, WestMessage
+mov rax,13
+mul CurrentPlayer
+add rdx,rax
+print [rdx],12
+mov cl,bl
+call _printCard
+
+print NewLine,2
+pop rcx
+ret
+_botPrint ENDP
 _botPlay PROC
+push rbp
+push rcx
+sub rsp,20h
+mov rcx,500
+call Sleep ;SLEEP
+
 lea rdi,West
-movzx rax,currentPlayer
+movzx rax,CurrentPlayer
 imul ax,16
 add rdi,rax
 botLoop:
-mov rcx,[rdi]
+mov cl,[rdi]
 call _checkIfPlayable
 inc rdi
-cmp rax,0
-je botLoop
-mov rcx,rax
+cmp rax,1
+jne botLoop
 call _removeCard
+call _botPrint
 call _addToTrick
+
+add rsp,20h
+pop rcx
+pop rbp
 ret
 _botPlay ENDP
 _humanPlay PROC
+push rbp
+push rcx
+sub rsp,20h
+
+mov rcx,1000
+call Sleep ;SLEEP
+
 call _printMyCards
 call _getCard
 mov cl,al
-;mov currentPlayer,3 ; remove this
+;mov CurrentPlayer,3 ; remove this
 call _removeCard
 mov cl,al
 call _addToTrick
+
+add rsp,20h
+pop rcx
+pop rbp
 ret
 _humanPlay ENDP
 _addToTrick PROC
 cmp HighCard,40h
-je firstCard
+je firstCardAdd
 mov al,cl
 and al,30h
 mov bl,HighCard
@@ -360,14 +653,15 @@ cmp al, bl
 jne worse
 cmp cl,HighCard
 jl worse
-firstCard:
-mov al,currentPlayer
+firstCardAdd:
+mov al,CurrentPlayer
 mov HighPlayer, al
 mov HighCard, cl
 worse:
 cmp cl,30h
 jl pointSkip
 inc TrickPoints
+inc HeartsBroken
 pointSkip:
 cmp cl,2Ch ;Queen of Spades
 jne queenSkip
@@ -377,12 +671,8 @@ queenSkip:
 ret
 _addToTrick ENDP
 _getCard PROC
-mov rcx, consoleOutputHandle
-lea rdx, PlayMessage
-mov r8, 15
-mov r9,0
-call WriteConsoleA
-mov rcx,consoleInputHandle
+print PlayMessage,13
+mov rcx,ConsoleInputHandle
 lea rdx,InputBuffer
 mov r8, 4
 lea r9,InputBufferNum
@@ -402,32 +692,27 @@ jne invalid
 shl cl,4
 sub bl,cl
 mov al,bl
-
+mov cl,al
+call _checkIfPlayable
+cmp al,0
+je canNotPlay
+mov al,cl
 movzx rcx, PlayerCards
 lea rdi,Player
 REPNZ SCASB
 jne doNotHave
 ret
 invalid:
-mov rcx, consoleOutputHandle
-lea rdx, InvalidCardMessage
-mov r8, 30
-mov r9,0
-call WriteConsoleA
+print InvalidCardMessage,30
+print NewLine,2
 jmp _getCard
 doNotHave:
-mov rcx, consoleOutputHandle
-lea rdx, DoNotHaveMessage
-mov r8, 25
-mov r9,0
-call WriteConsoleA
+print DoNotHaveMessage,25
+print NewLine,2
 jmp _getCard
 canNotPlay:
-mov rcx, consoleOutputHandle
-lea rdx, CanNotPlayMessage
-mov r8, 41
-mov r9,0
-call WriteConsoleA
+print CanNotPlayMessage,41
+print NewLine,2
 jmp _getCard
 _getCard ENDP
 _removeCard PROC
@@ -436,11 +721,12 @@ push rcx
 sub rsp,20h
 mov al,cl
 mov rcx,13
-mov bl,currentPlayer
-imul bx,16
+xor rbx,rbx
+mov bl,CurrentPlayer
+imul rbx,16
 lea rdi,West
 add rdi,rbx
-REPNZ SCASB
+REPNZ SCASB ;;; breaks on this
 mov rsi,rdi
 dec rdi
 xor bl,bl
@@ -448,7 +734,7 @@ rep movsb
 xor cl,cl
 mov [rdi], cl
 lea rbx,WestCards
-movzx rcx, currentPlayer
+movzx rcx, CurrentPlayer
 add rbx, rcx
 dec BYTE PTR [rbx]
 add rsp,20h
@@ -458,23 +744,68 @@ ret
 _removeCard ENDP
 _printMyCards PROC
 xor r12,r12
-xor rdx,rdx ;color
 tmp:
 lea rcx,Player
 add rcx,r12
+mov cl,[rcx]
 call _printCard
 inc rdx
 inc r12
 movzx r9,PlayerCards
 cmp r12, r9
 jnz tmp
+print NewLine,2
 ret
 _printMyCards ENDP
-_sort PROC
-lea rsi,Player
+_sort PROC;(player)
+    mov bl, 16      ; Outer loop iteration count
+OuterLoop:
+	lea rsi,Player
 
+    mov cl, bl       ; Inner loop iteration count
+InnerLoop:
+    lodsb
+    mov dl, [rsi]
+    cmp al, dl
+    jle Skip
+    mov [rsi-1], dl   ; Swap these 2 elements
+    mov [rsi], al
+Skip:
+    dec cl
+    jnz InnerLoop
+
+    dec bl
+    jnz OuterLoop
 
 
 ret
 _sort ENDP
+_passShuffle PROC
+xor r9,r9
+passShuffleOuterLoop:
+lea rdi,West
+mov r11,13
+xor rbx,rbx
+xor r12,r12
+mov rcx,r11
+passShuffleLoop:
+	call _getRand
+	div r11
+	add rdx,rdi
+	mov al,[rbx+rdi]
+	xchg al,[rdx]
+	mov [rbx+rdi],al
+	inc rbx
+	cmp r11,rbx
+jg passShuffleLoop
+xor rbx,rbx
+inc r12
+cmp r12,10
+jl passShuffleLoop
+inc r9
+add rdi,10h
+cmp r9,3
+jl passShuffleOuterLoop
+ret
+_passShuffle ENDP
 END

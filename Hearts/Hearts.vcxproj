@@ -136,6 +136,7 @@
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <EntryPointSymbol>_main</EntryPointSymbol>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
